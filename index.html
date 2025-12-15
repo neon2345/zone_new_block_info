@@ -546,17 +546,22 @@
             tagFilters.town = document.getElementById('tagTown').checked;
             tagFilters.low = document.getElementById('tagLow').checked;
             tagFilters.unchange = document.getElementById('tagUnchange').checked;
-            const hasTagSelection = tagFilters.change || tagFilters.town || tagFilters.low || tagFilters.unchange;
+            const selectedTags = [];
+            if (tagFilters.change) selectedTags.push('change');
+            if (tagFilters.town) selectedTags.push('town');
+            if (tagFilters.low) selectedTags.push('low');
+            if (tagFilters.unchange) selectedTags.push('unchange');
             
             filteredData = h3Data.filter(item => {
                 const provinceMatch = !selectedProvince || item.prov === selectedProvince;
                 const cityMatch = !selectedCity || item.city === selectedCity;
-                const tagMatch = !hasTagSelection || (
-                    (tagFilters.change && item.isChange) ||
-                    (tagFilters.town && item.isTown) ||
-                    (tagFilters.low && item.isLow) ||
-                    (tagFilters.unchange && item.isUnchange)
-                );
+                const tagMatch = selectedTags.length === 0 || selectedTags.every(tag => {
+                    if (tag === 'change') return item.isChange;
+                    if (tag === 'town') return item.isTown;
+                    if (tag === 'low') return item.isLow;
+                    if (tag === 'unchange') return item.isUnchange;
+                    return true;
+                });
                 return provinceMatch && cityMatch && tagMatch;
             });
             
@@ -570,6 +575,8 @@
                     const centerLat = firstBoundary.reduce((sum, point) => sum + point[1], 0) / firstBoundary.length;
                     map.setCenter([centerLng, centerLat]);
                 }
+            } else if (selectedTags.length > 0) {
+                alert('筛选结果为空，未找到同时满足所选标签的商圈');
             }
         }
         
