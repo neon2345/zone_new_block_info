@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>H3容量变更地图</title>
+    <script src="https://webapi.amap.com/maps?v=2.0&key=05274d5027e6b22978b2ade4630f3596"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        #container {
+            width: 100%;
+            height: 100vh;
+        }
+        .info-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            min-width: 200px;
+            z-index: 1000;
+        }
+        .info-item {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        .info-label {
+            font-weight: bold;
+            color: #333;
+        }
+        .info-value {
+            color: #666;
+        }
+        .legend {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+        .legend-color {
+            width: 20px;
+            height: 15px;
+            margin-right: 8px;
+            border: 1px solid #333;
+        }
+        .filter-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            min-width: 200px;
+        }
+        .filter-group {
+            margin: 10px 0;
+        }
+        .filter-label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        .filter-select {
+            width: 100%;
+            padding: 5px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            font-size: 14px;
+        }
+        .filter-buttons {
+            margin-top: 10px;
+            text-align: center;
+        }
+        .tag-checkboxes {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(120px, 1fr));
+            gap: 6px;
+            font-size: 13px;
+        }
+        .tag-checkboxes label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 8px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 12px;
+            color: #fff;
+            margin-left: 6px;
+        }
+        .badge-change { background-color: #ff4444; }
+        .badge-town { background-color: #1e90ff; }
+        .badge-low { background-color: #ff9f0a; }
+        .filter-btn {
+            padding: 5px 10px;
+            margin: 0 5px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+        .btn-secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <div class="filter-panel">
+        <div class="filter-group">
+            <div class="filter-label">省份筛选:</div>
+            <select id="provinceFilter" class="filter-select">
+                <option value="">全部省份</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <div class="filter-label">城市筛选:</div>
+            <select id="cityFilter" class="filter-select">
+                <option value="">全部城市</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <div class="filter-label">标签筛选:</div>
+            <div class="tag-checkboxes">
+                <label><input type="checkbox" id="tagChange" checked>变化商圈</label>
+                <label><input type="checkbox" id="tagUnchange" checked>容量不变</label>
+                <label><input type="checkbox" id="tagTown" checked>乡镇商圈</label>
+                <label><input type="checkbox" id="tagLow" checked>低质量商圈</label>
+            </div>
+        </div>
+        <div class="filter-buttons">
+            <button class="filter-btn btn-primary" onclick="applyFilter()">应用筛选</button>
+            <button class="filter-btn btn-secondary" onclick="clearFilter()">清除筛选</button>
+        </div>
+        <div style="margin-top: 10px; font-size: 12px; color: #666;">
+            显示: <span id="displayCount">0</span> / <span id="totalCount">0</span> 个区块
+        </div>
+    </div>
+    <div class="info-panel" id="infoPanel" style="display: none;">
+        <div class="info-item">
+            <span class="info-label">省份:</span>
+            <span class="info-value" id="prov"></span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">城市:</span>
+            <span class="info-value" id="city"></span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">H3编码:</span>
+            <span class="info-value" id="h3"></span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">总容量(原1027):</span>
+            <span class="info-value" id="capacity_pred"></span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">总容量(新1215):</span>
+            <span class="info-value" id="capacity_pred_new"></span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">门店数(1215):</span>
+            <span class="info-value" id="left_capacity_real"></span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">剩余容量(1215):</span>
+            <span class="info-value" id="left_capacity_real_new"></span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">容量差值:</span>
+            <span class="info-value" id="capacity_real_diff" style="color: #ff4444; font-weight: bold;"></span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">标签:</span>
+            <span class="info-value" id="tags"></span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">是否乡镇:</span>
+            <span class="info-value" id="is_town"></span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">是否低质量:</span>
+            <span class="info-value" id="is_low"></span>
+        </div>
+    </div>
+    <div class="legend">
+        <div style="font-weight: bold; margin-bottom: 5px;">图例</div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #ff4444;"></div>
+            <span>容量增加</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #44ff44;"></div>
+            <span>容量减少</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #c0c0c0;"></div>
+            <span>容量不变</span>
+        </div>
+        <div style="font-weight: bold; margin: 8px 0 4px;">标签标识</div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #ffffff; border: 2px dashed #1e90ff;"></div>
+            <span>乡镇商圈</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #ffffff; border: 2px dashed #ff9f0a;"></div>
+            <span>低质量商圈</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #ffffff; border: 2px dashed #8e44ad;"></div>
+            <span>乡镇且低质量</span>
+        </div>
+    </div>
+
+    <script>
+        // 请替换为你的高德地图API Key
+        const AMAP_KEY = 'e4e6d6127a1e404b42f6dae630299b03'; // 请替换为实际的高德地图API Key
+        
+        let map;
+        let h3Data = [];
+        let allPolygons = [];
+        let filteredData = null; // null 表示未筛选；[] 表示筛选结果为空
+        const tagFilters = {
+            change: true,
+            town: true,
+            low: true,
+            unchange: true
+        };
+        
+        // 初始化地图
+        function initMap() {
+            map = new AMap.Map('container', {
+                zoom: 10,
+                center: [116.397428, 39.90923] // 默认中心点（北京）
+            });
+            
+            // 加载H3数据
+            loadH3Data();
+        }
+        
+        // 加载H3数据
+        async function loadH3Data() {
+            try {
+                // 首先尝试加载实际数据，如果失败则使用测试数据
+                let response;
+                try {
+                    response = await fetch('xibu_h3_change_info.json');
+                } catch (error) {
+                    console.warn('无法加载h3_change_info.json，使用测试数据');
+                    response = await fetch('test_h3_data.json');
+                }
+                
+                const raw = await response.json();
+                h3Data = mergeBlockData(raw);
+                console.log('加载了', h3Data.length, '个H3区块');
+                
+                // 调试信息：检查数据结构
+                if (h3Data.length > 0) {
+                    console.log('示例数据:', h3Data[0]);
+                    const sampleProvinces = [...new Set(h3Data.map(item => item.prov))];
+                    const sampleCities = [...new Set(h3Data.map(item => item.city))];
+                    console.log('省份示例:', sampleProvinces.slice(0, 5));
+                    console.log('城市示例:', sampleCities.slice(0, 5));
+                }
+                
+                // 初始化筛选选项
+                initFilterOptions();
+                
+                // 初始化筛选事件监听器
+                initFilterEventListeners();
+                
+                // 绘制H3边界
+                drawH3Boundaries();
+                
+                // 设置地图中心到第一个H3区块
+                if (h3Data.length > 0) {
+                    const firstBoundary = h3Data[0].boundary;
+                    if (firstBoundary && firstBoundary.length > 0) {
+                        const centerLng = firstBoundary.reduce((sum, point) => sum + point[0], 0) / firstBoundary.length;
+                        const centerLat = firstBoundary.reduce((sum, point) => sum + point[1], 0) / firstBoundary.length;
+                        map.setCenter([centerLng, centerLat]);
+                    }
+                }
+                
+            } catch (error) {
+                console.error('加载H3数据失败:', error);
+                alert('加载H3数据失败，请确保h3_change_info.json文件存在');
+            }
+        }
+        
+        // 合并三类区块数据，打平为单个数组
+        function mergeBlockData(raw) {
+            const isArrayInput = Array.isArray(raw);
+            const changeList = isArrayInput ? raw : (raw.change_block_info || []);
+            const townList = isArrayInput ? [] : (raw.town_block_info || []);
+            const lowList = isArrayInput ? [] : (raw.low_block_info || []);
+            const unchangeList = isArrayInput ? [] : (raw.unchange_block_info || []);
+            const merged = new Map();
+            
+            const upsert = (item) => {
+                if (!item || !item.h3) return;
+                if (!merged.has(item.h3)) {
+                    merged.set(item.h3, {
+                        ...item,
+                        isChange: false,
+                        isTown: false,
+                        isLow: false
+                    });
+                } else {
+                    merged.set(item.h3, { ...merged.get(item.h3), ...item });
+                }
+                return merged.get(item.h3);
+            };
+            
+            changeList.forEach(item => {
+                const target = upsert(item);
+                if (target) target.isChange = true;
+            });
+            
+            townList.forEach(item => {
+                const target = upsert(item);
+                if (target) {
+                    target.isTown = true;
+                    target.if_town_block = 1;
+                }
+            });
+            
+            lowList.forEach(item => {
+                const target = upsert(item);
+                if (target) {
+                    target.isLow = true;
+                    target.if_low_quality = 1;
+                }
+            });
+            
+            unchangeList.forEach(item => {
+                const target = upsert(item);
+                if (target) {
+                    target.isUnchange = true;
+                    target.capacity_diff = target.capacity_diff ?? 0;
+                }
+            });
+            
+            return Array.from(merged.values());
+        }
+        
+        // 初始化筛选选项
+        function initFilterOptions() {
+            if (!h3Data || h3Data.length === 0) {
+                console.warn('H3数据未加载，无法初始化筛选选项');
+                return;
+            }
+            
+            const provinces = [...new Set(h3Data.map(item => item.prov))].sort();
+            const cities = [...new Set(h3Data.map(item => item.city))].sort();
+            
+            const provinceSelect = document.getElementById('provinceFilter');
+            const citySelect = document.getElementById('cityFilter');
+            
+            // 清空现有选项
+            provinceSelect.innerHTML = '<option value="">全部省份</option>';
+            citySelect.innerHTML = '<option value="">全部城市</option>';
+            
+            // 添加省份选项
+            provinces.forEach(prov => {
+                const option = document.createElement('option');
+                option.value = prov;
+                option.textContent = prov;
+                provinceSelect.appendChild(option);
+            });
+            
+            // 添加城市选项
+            cities.forEach(city => {
+                const option = document.createElement('option');
+                option.value = city;
+                option.textContent = city;
+                citySelect.appendChild(option);
+            });
+            
+            // 更新总数显示
+            document.getElementById('totalCount').textContent = h3Data.length;
+            
+            console.log(`初始化筛选选项完成: ${provinces.length}个省份, ${cities.length}个城市`);
+        }
+        
+        // 绘制H3边界
+        function drawH3Boundaries() {
+            // 清除现有多边形
+            allPolygons.forEach(polygon => {
+                map.remove(polygon);
+            });
+            allPolygons = [];
+            
+            const dataToDraw = filteredData === null ? h3Data : filteredData;
+            
+            dataToDraw.forEach((item, index) => {
+                if (!item.boundary || item.boundary.length === 0) {
+                    return;
+                }
+                
+                const style = getPolygonStyle(item);
+                
+                // 创建多边形
+                const polygon = new AMap.Polygon({
+                    path: item.boundary,
+                    fillColor: style.fillColor,
+                    fillOpacity: 0.6,
+                    strokeColor: style.strokeColor,
+                    strokeWeight: style.strokeWeight,
+                    strokeOpacity: 0.9,
+                    strokeStyle: style.strokeStyle
+                });
+                
+                // 添加到地图
+                map.add(polygon);
+                allPolygons.push(polygon);
+                
+                // 添加点击事件
+                polygon.on('click', function(e) {
+                    showH3Info(item);
+                });
+                
+                // 添加鼠标悬停效果
+                polygon.on('mouseover', function(e) {
+                    polygon.setOptions({
+                        fillOpacity: 0.8,
+                        strokeWeight: style.strokeWeight + 1
+                    });
+                });
+                
+                polygon.on('mouseout', function(e) {
+                    polygon.setOptions({
+                        fillOpacity: 0.6,
+                        strokeWeight: style.strokeWeight
+                    });
+                });
+            });
+            
+            // 更新显示数量
+            document.getElementById('displayCount').textContent = dataToDraw.length;
+        }
+        
+        // 根据容量差值和标签决定样式
+        function getPolygonStyle(item) {
+            const diff = parseInt(item.capacity_diff);
+            let fillColor = '#c0c0c0'; // 中性表示不变
+            if (diff > 0) {
+                fillColor = '#ff4444'; // 红色表示增加
+            } else if (diff < 0) {
+                fillColor = '#44ff44'; // 绿色表示减少
+            }
+            
+            // 默认描边跟随增减
+            let strokeColor = '#888888';
+            let strokeStyle = 'solid';
+            let strokeWeight = 2;
+            if (diff > 0) strokeColor = '#cc0000';
+            if (diff < 0) strokeColor = '#00cc00';
+            
+            // 标签覆盖描边样式
+            if (item.isTown && item.isLow) {
+                strokeColor = '#8e44ad';
+                strokeStyle = 'dashed';
+                strokeWeight = 3;
+            } else if (item.isTown) {
+                strokeColor = '#1e90ff';
+                strokeStyle = 'dashed';
+                strokeWeight = 3;
+            } else if (item.isLow) {
+                strokeColor = '#ff9f0a';
+                strokeStyle = 'dashed';
+                strokeWeight = 3;
+            }
+            
+            return { fillColor, strokeColor, strokeStyle, strokeWeight };
+        }
+        
+        // 显示H3信息
+        function showH3Info(item) {
+            document.getElementById('prov').textContent = item.prov;
+            document.getElementById('city').textContent = item.city;
+            document.getElementById('h3').textContent = item.h3;
+            document.getElementById('capacity_pred').textContent = item.capacity_pred;
+            document.getElementById('capacity_pred_new').textContent = item.capacity_pred_new;
+            document.getElementById('left_capacity_real').textContent = item.store_num;
+            document.getElementById('left_capacity_real_new').textContent = item.left_capacity_real_new;
+            document.getElementById('is_town').textContent = item.isTown ? '是' : '否';
+            document.getElementById('is_low').textContent = item.isLow ? '是' : '否';
+            document.getElementById('tags').innerHTML = renderTagBadges(item);
+            
+            const diffElement = document.getElementById('capacity_real_diff');
+            const diff = parseInt(item.capacity_diff);
+            diffElement.textContent = diff;
+            if (diff > 0) {
+                diffElement.style.color = '#ff4444';
+                diffElement.textContent = '+' + diff;
+            } else if (diff < 0) {
+                diffElement.style.color = '#44ff44';
+            } else {
+                diffElement.style.color = '#666666';
+            }
+            
+            document.getElementById('infoPanel').style.display = 'block';
+        }
+        
+        function renderTagBadges(item) {
+            const tags = [];
+            if (item.isChange) tags.push('<span class="badge badge-change">变化</span>');
+            if (item.isTown) tags.push('<span class="badge badge-town">乡镇</span>');
+            if (item.isLow) tags.push('<span class="badge badge-low">低质量</span>');
+            return tags.length ? tags.join(' ') : '无';
+        }
+        
+        // 应用筛选
+        function applyFilter() {
+            const selectedProvince = document.getElementById('provinceFilter').value;
+            const selectedCity = document.getElementById('cityFilter').value;
+            tagFilters.change = document.getElementById('tagChange').checked;
+            tagFilters.town = document.getElementById('tagTown').checked;
+            tagFilters.low = document.getElementById('tagLow').checked;
+            tagFilters.unchange = document.getElementById('tagUnchange').checked;
+            const hasTagSelection = tagFilters.change || tagFilters.town || tagFilters.low || tagFilters.unchange;
+            
+            filteredData = h3Data.filter(item => {
+                const provinceMatch = !selectedProvince || item.prov === selectedProvince;
+                const cityMatch = !selectedCity || item.city === selectedCity;
+                const tagMatch = !hasTagSelection || (
+                    (tagFilters.change && item.isChange) ||
+                    (tagFilters.town && item.isTown) ||
+                    (tagFilters.low && item.isLow) ||
+                    (tagFilters.unchange && item.isUnchange)
+                );
+                return provinceMatch && cityMatch && tagMatch;
+            });
+            
+            drawH3Boundaries();
+            
+            // 如果筛选后有数据，调整地图中心
+            if (filteredData.length > 0) {
+                const firstBoundary = filteredData[0].boundary;
+                if (firstBoundary && firstBoundary.length > 0) {
+                    const centerLng = firstBoundary.reduce((sum, point) => sum + point[0], 0) / firstBoundary.length;
+                    const centerLat = firstBoundary.reduce((sum, point) => sum + point[1], 0) / firstBoundary.length;
+                    map.setCenter([centerLng, centerLat]);
+                }
+            }
+        }
+        
+        // 清除筛选
+        function clearFilter() {
+            document.getElementById('provinceFilter').value = '';
+            document.getElementById('cityFilter').value = '';
+            document.getElementById('tagChange').checked = true;
+            document.getElementById('tagTown').checked = true;
+            document.getElementById('tagLow').checked = true;
+            document.getElementById('tagUnchange').checked = true;
+            tagFilters.change = true;
+            tagFilters.town = true;
+            tagFilters.low = true;
+            tagFilters.unchange = true;
+            filteredData = null;
+            drawH3Boundaries();
+        }
+        
+        // 初始化筛选事件监听器
+        function initFilterEventListeners() {
+            // 省份选择改变时，更新城市选项
+            document.getElementById('provinceFilter').addEventListener('change', function() {
+                const selectedProvince = this.value;
+                const citySelect = document.getElementById('cityFilter');
+                
+                // 清空城市选项
+                citySelect.innerHTML = '<option value="">全部城市</option>';
+                
+                if (selectedProvince) {
+                    // 获取该省份下的城市
+                    const citiesInProvince = [...new Set(
+                        h3Data
+                            .filter(item => item.prov === selectedProvince)
+                            .map(item => item.city)
+                    )].sort();
+                    
+                    citiesInProvince.forEach(city => {
+                        const option = document.createElement('option');
+                        option.value = city;
+                        option.textContent = city;
+                        citySelect.appendChild(option);
+                    });
+                } else {
+                    // 显示所有城市
+                    const allCities = [...new Set(h3Data.map(item => item.city))].sort();
+                    allCities.forEach(city => {
+                        const option = document.createElement('option');
+                        option.value = city;
+                        option.textContent = city;
+                        citySelect.appendChild(option);
+                    });
+                }
+            });
+        }
+        
+        // 页面加载完成后初始化地图
+        window.onload = initMap;
+    </script>
+</body>
+</html>
