@@ -150,10 +150,12 @@
         <div class="filter-group">
             <div class="filter-label">标签筛选:</div>
             <div class="tag-checkboxes">
-                <label><input type="checkbox" id="tagChange" checked>容量变化>rong la
-                <label><input type="checkbox" id="tagUnchange" checked>容量不变</label>
-                <label><input type="checkbox" id="tagTown" checked>乡镇商圈</label>
-                <label><input type="checkbox" id="tagLow" checked>低质量商圈</label>
+                <label><input type="checkbox" id="tagAll" checked>全部商圈</label>
+                <label><input type="checkbox" id="tagChange" >变化商圈</label>
+                <label><input type="checkbox" id="tagUnchange" >容量不变</label>
+                <label><input type="checkbox" id="tagTown" >乡镇商圈</label>
+                <label><input type="checkbox" id="tagLow" >低质量商圈</label>
+                <label><input type="checkbox" id="tagSpecial" >较难落位商圈</label>
             </div>
         </div>
         <div class="filter-buttons">
@@ -209,6 +211,10 @@
             <span class="info-label">是否低质量:</span>
             <span class="info-value" id="is_low"></span>
         </div>
+        <div class="info-item">
+            <span class="info-label">是否较难落位:</span>
+            <span class="info-value" id="is_special"></span>
+        </div>
     </div>
     <div class="legend">
         <div style="font-weight: bold; margin-bottom: 5px;">图例</div>
@@ -234,8 +240,8 @@
             <span>低质量商圈</span>
         </div>
         <div class="legend-item">
-            <div class="legend-color" style="background-color: #ffffff; border: 2px dashed #8e44ad;"></div>
-            <span>乡镇且低质量</span>
+            <div class="legend-color" style="background-color: #ffffff; border: 2px dashed #ff00ff;"></div>
+            <span>较难落位商圈</span>
         </div>
     </div>
 
@@ -248,10 +254,12 @@
         let allPolygons = [];
         let filteredData = null; // null 表示未筛选；[] 表示筛选结果为空
         const tagFilters = {
-            change: true,
-            town: true,
-            low: true,
-            unchange: true
+            all: true,
+            change: false,
+            town: false,
+            low: false,
+            unchange: false,
+            special: false
         };
         
         // 初始化地图
@@ -322,7 +330,17 @@
             const townList = isArrayInput ? [] : (raw.town_block_info || []);
             const lowList = isArrayInput ? [] : (raw.low_block_info || []);
             const unchangeList = isArrayInput ? [] : (raw.unchange_block_info || []);
+            // 兼容新增类别，允许不同字段命名
+            const specialList = isArrayInput ? [] : (raw.special_block_info || raw.new_block_info || raw.extra_block_info || []);
             const merged = new Map();
+            
+            // 统一从原始字段推导标签
+            const normalizeFlags = (target) => {
+                const asBool = (v) => v === 1 || v === '1' || v === true;
+                if (asBool(target.if_town_block)) target.isTown = true;
+                if (asBool(target.if_low_quality)) target.isLow = true;
+                if (asBool(target.if_hard_location)) target.isSpecial = true;
+            };
             
             const upsert = (item) => {
                 if (!item || !item.h3) return;
@@ -331,11 +349,13 @@
                         ...item,
                         isChange: false,
                         isTown: false,
-                        isLow: false
+                        isLow: false,
+                        isSpecial: false
                     });
                 } else {
                     merged.set(item.h3, { ...merged.get(item.h3), ...item });
                 }
+                normalizeFlags(merged.get(item.h3));
                 return merged.get(item.h3);
             };
             
@@ -357,6 +377,14 @@
                 if (target) {
                     target.isLow = true;
                     target.if_low_quality = 1;
+                }
+            });
+            
+            specialList.forEach(item => {
+                const target = upsert(item);
+                if (target) {
+                    target.isSpecial = true;
+                    target.if_special_block = 1;
                 }
             });
             
@@ -426,9 +454,10 @@
                 }
                 
                 const style = getPolygonStyle(item);
+                const outlineStyles = getOutlineStyles(item);
                 
-                // 创建多边形
-                const polygon = new AMap.Polygon({
+                // 基础填充多边形
+                const basePolygon = new AMap.Polygon({
                     path: item.boundary,
                     fillColor: style.fillColor,
                     fillOpacity: 0.6,
@@ -438,27 +467,45 @@
                     strokeStyle: style.strokeStyle
                 });
                 
+                const polygons = [basePolygon];
+
+                // 多层描边（彩虹式外扩）
+                outlineStyles.forEach((outline, idx) => {
+                    const outlinePolygon = new AMap.Polygon({
+                        path: item.boundary,
+                        fillOpacity: 0,
+                        strokeColor: outline.color,
+                        strokeWeight: 3 + idx * 3, // 逐层加粗以便区分
+                        strokeOpacity: 1,
+                        strokeStyle: outline.style || 'dashed',
+                        bubble: true
+                    });
+                    polygons.push(outlinePolygon);
+                });
+
                 // 添加到地图
-                map.add(polygon);
-                allPolygons.push(polygon);
+                map.add(polygons);
+                allPolygons.push(...polygons);
                 
                 // 添加点击事件
-                polygon.on('click', function(e) {
-                    showH3Info(item);
-                });
-                
-                // 添加鼠标悬停效果
-                polygon.on('mouseover', function(e) {
-                    polygon.setOptions({
-                        fillOpacity: 0.8,
-                        strokeWeight: style.strokeWeight + 1
+                polygons.forEach(polygon => {
+                    polygon.on('click', function(e) {
+                        showH3Info(item);
                     });
-                });
-                
-                polygon.on('mouseout', function(e) {
-                    polygon.setOptions({
-                        fillOpacity: 0.6,
-                        strokeWeight: style.strokeWeight
+                    
+                    // 添加鼠标悬停效果（仅基准面调整填充）
+                    polygon.on('mouseover', function(e) {
+                        basePolygon.setOptions({
+                            fillOpacity: 0.8,
+                            strokeWeight: style.strokeWeight + 1
+                        });
+                    });
+                    
+                    polygon.on('mouseout', function(e) {
+                        basePolygon.setOptions({
+                            fillOpacity: 0.6,
+                            strokeWeight: style.strokeWeight
+                        });
                     });
                 });
             });
@@ -477,29 +524,25 @@
                 fillColor = '#44ff44'; // 绿色表示减少
             }
             
-            // 默认描边跟随增减
+            // 默认描边跟随增减（基础层，不承担类别颜色）
             let strokeColor = '#888888';
             let strokeStyle = 'solid';
-            let strokeWeight = 2;
+            let strokeWeight = 1.5;
             if (diff > 0) strokeColor = '#cc0000';
             if (diff < 0) strokeColor = '#00cc00';
             
-            // 标签覆盖描边样式
-            if (item.isTown && item.isLow) {
-                strokeColor = '#8e44ad';
-                strokeStyle = 'dashed';
-                strokeWeight = 3;
-            } else if (item.isTown) {
-                strokeColor = '#1e90ff';
-                strokeStyle = 'dashed';
-                strokeWeight = 3;
-            } else if (item.isLow) {
-                strokeColor = '#ff9f0a';
-                strokeStyle = 'dashed';
-                strokeWeight = 3;
-            }
-            
+            // 类别的颜色交给外层多重描边，避免叠加为紫色等混色
             return { fillColor, strokeColor, strokeStyle, strokeWeight };
+        }
+
+        // 按类别生成多层描边（彩虹状）
+        function getOutlineStyles(item) {
+            const outlines = [];
+            // 顺序决定由内到外，保持稳定可辨识
+            if (item.isLow) outlines.push({ color: '#ff9f0a', style: 'dashed' });
+            if (item.isTown) outlines.push({ color: '#1e90ff', style: 'dashed' });
+            if (item.isSpecial) outlines.push({ color: '#ff00ff', style: 'dashed' });
+            return outlines;
         }
         
         // 显示H3信息
@@ -513,6 +556,7 @@
             document.getElementById('left_capacity_real_new').textContent = item.left_capacity_real_new;
             document.getElementById('is_town').textContent = item.isTown ? '是' : '否';
             document.getElementById('is_low').textContent = item.isLow ? '是' : '否';
+            document.getElementById('is_special').textContent = item.isSpecial ? '是' : '否';
             document.getElementById('tags').innerHTML = renderTagBadges(item);
             
             const diffElement = document.getElementById('capacity_real_diff');
@@ -535,6 +579,7 @@
             if (item.isChange) tags.push('<span class="badge badge-change">变化</span>');
             if (item.isTown) tags.push('<span class="badge badge-town">乡镇</span>');
             if (item.isLow) tags.push('<span class="badge badge-low">低质量</span>');
+            if (item.isSpecial) tags.push('<span class="badge" style="background-color:#ff00ff;">较难落位</span>');
             return tags.length ? tags.join(' ') : '无';
         }
         
@@ -542,24 +587,29 @@
         function applyFilter() {
             const selectedProvince = document.getElementById('provinceFilter').value;
             const selectedCity = document.getElementById('cityFilter').value;
+            tagFilters.all = document.getElementById('tagAll').checked;
             tagFilters.change = document.getElementById('tagChange').checked;
             tagFilters.town = document.getElementById('tagTown').checked;
             tagFilters.low = document.getElementById('tagLow').checked;
             tagFilters.unchange = document.getElementById('tagUnchange').checked;
+            tagFilters.special = document.getElementById('tagSpecial').checked;
             const selectedTags = [];
             if (tagFilters.change) selectedTags.push('change');
             if (tagFilters.town) selectedTags.push('town');
             if (tagFilters.low) selectedTags.push('low');
             if (tagFilters.unchange) selectedTags.push('unchange');
+            if (tagFilters.special) selectedTags.push('special');
+            const useAllTags = tagFilters.all;
             
             filteredData = h3Data.filter(item => {
                 const provinceMatch = !selectedProvince || item.prov === selectedProvince;
                 const cityMatch = !selectedCity || item.city === selectedCity;
-                const tagMatch = selectedTags.length === 0 || selectedTags.every(tag => {
+                const tagMatch = useAllTags || selectedTags.length === 0 || selectedTags.every(tag => {
                     if (tag === 'change') return item.isChange;
                     if (tag === 'town') return item.isTown;
                     if (tag === 'low') return item.isLow;
                     if (tag === 'unchange') return item.isUnchange;
+                    if (tag === 'special') return item.isSpecial;
                     return true;
                 });
                 return provinceMatch && cityMatch && tagMatch;
@@ -584,14 +634,18 @@
         function clearFilter() {
             document.getElementById('provinceFilter').value = '';
             document.getElementById('cityFilter').value = '';
-            document.getElementById('tagChange').checked = true;
-            document.getElementById('tagTown').checked = true;
-            document.getElementById('tagLow').checked = true;
-            document.getElementById('tagUnchange').checked = true;
-            tagFilters.change = true;
-            tagFilters.town = true;
-            tagFilters.low = true;
-            tagFilters.unchange = true;
+            document.getElementById('tagAll').checked = true;
+            document.getElementById('tagChange').checked = false;
+            document.getElementById('tagTown').checked = false;
+            document.getElementById('tagLow').checked = false;
+            document.getElementById('tagUnchange').checked = false;
+            document.getElementById('tagSpecial').checked = false;
+            tagFilters.all = true;
+            tagFilters.change = false;
+            tagFilters.town = false;
+            tagFilters.low = false;
+            tagFilters.unchange = false;
+            tagFilters.special = false;
             filteredData = null;
             drawH3Boundaries();
         }
